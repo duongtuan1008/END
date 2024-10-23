@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Chỉnh sửa thông tin người dùng</title>
+    <link rel="stylesheet" href="/static/css/edit.css" />
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.1.3/css/bootstrap.min.css"
+    />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/sweetalert2@11/dist/sweetalert2.min.css">
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/toastr.js/latest/toastr.min.css"
+    />
+  </head>
+  <body>
+    <div class="container">
+      <!-- Tiêu đề trang và nút quay về trang chủ -->
+      <div class="d-flex justify-content-between align-items-center mt-4 mb-4">
+        <h1>Quản lý thông tin người dùng</h1>
+        <a href="/" class="btn btn-secondary">Quay về</a>
+      </div>
+
+      <!-- Form chỉnh sửa người dùng nằm ở phía trên -->
+      <form
+        action="/edit/{{ user.id }}"
+        method="POST"
+        enctype="multipart/form-data"
+      >
+        <div class="mb-4">
+          <label for="name" class="form-label">Tên người dùng</label>
+          <input
+            type="text"
+            name="name"
+            id="name"
+            class="form-control"
+            value="{{ user.name }}"
+            required
+          />
+        </div>
+
+        <!-- Bố cục Thêm ảnh mới và Thay thế ảnh đặt ngang hàng -->
+        <div class="row">
+          <!-- Form thêm ảnh mới -->
+          <div class="col-md-6">
+            <h3>Thêm ảnh mới</h3>
+            <div class="mb-4">
+              <label for="new_images" class="form-label"
+                >Tải lên ảnh mới để thêm (có thể chọn nhiều ảnh)</label
+              >
+              <input
+                type="file"
+                name="new_images"
+                id="new_images"
+                class="form-control"
+                accept="image/*"
+                multiple
+              />
+            </div>
+          </div>
+
+          <!-- Form thay thế toàn bộ ảnh -->
+          <div class="col-md-6">
+            <h3>Thay thế toàn bộ ảnh</h3>
+            <div class="mb-4">
+              <label for="replace_images" class="form-label"
+                >Tải lên ảnh mới để thay thế toàn bộ ảnh (có thể chọn nhiều
+                ảnh)</label
+              >
+              <input
+                type="file"
+                name="replace_images"
+                id="replace_images"
+                class="form-control"
+                accept="image/*"
+                multiple
+              />
+            </div>
+          </div>
+        </div>
+
+        <!-- Nút lưu thông tin người dùng -->
+        <div class="d-flex justify-content-end">
+          <button type="submit" class="btn btn-primary">Lưu thông tin</button>
+        </div>
+      </form>
+
+      <!-- Hiển thị các ảnh hiện có của người dùng -->
+      <h2 class="mt-5">Ảnh hiện có của người dùng</h2>
+      <div class="row">
+        {% for image in image_files %}
+        <div class="col-md-3 mt-3">
+          <div class="card">
+            <!-- Ảnh người dùng hiện có -->
+            <img
+              src="{{ url_for('serve_dataset_file', filename=user.name + '/' + image) }}"
+              class="card-img-top img-thumbnail"
+              alt="{{ user.name }}"
+            />
+            <div class="card-body">
+              <!-- Form thay thế ảnh -->
+              <form
+                action="/replace_image/{{ user.id }}/{{ image }}"
+                method="POST"
+                enctype="multipart/form-data"
+                class="mb-2"
+              >
+                <div class="mb-2">
+                  <label for="new_image_{{ loop.index }} "
+                    >Chọn ảnh mới để thay thế:</label
+                  >
+                  <input
+                    type="file"
+                    name="new_image"
+                    id="new_image_{{ loop.index }}"
+                    class="form-control"
+                    accept="image/*"
+                  />
+                </div>
+                <button type="submit" class="btn btn-warning btn-sm">
+                  Thay thế ảnh
+                </button>
+              </form>
+
+              <!-- Form xóa ảnh -->
+              <form
+                action="/delete_image/{{ user.id }}/{{ image }}"
+                method="POST"
+              >
+                <button
+                  type="submit"
+                  class="btn btn-danger btn-sm"
+                  onclick="confirmDelete('{{ user.id }}', '{{ image }}'); return false;"
+                >
+                  Xóa ảnh
+                </button>
+              </form>
+            </div>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+
+    <!-- Toastr và Bootstrap JS -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/toastr.js/latest/toastr.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.1.3/js/bootstrap.bundle.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+
+    <!-- SweetAlert cho confirm delete -->
+    <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <script src="/static/js/edit.js"></script>
+  </body>
+</html>
