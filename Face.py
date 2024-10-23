@@ -128,30 +128,17 @@ def writeEpprom(new_pass):
     print(f"Ghi mật khẩu mới vào EEPROM: {new_pass}")
     # Thực hiện ghi vào EEPROM ở đây
 def clear_lcd():
-    #"""Hàm để xóa nội dung trên màn hình LCD"""
     lcd.clear()
-    lcd.home()  # Đưa con trỏ về vị trí bắt đầu
+    lcd.home()  # Đưa con trỏ về vị trí ban đầu
+    time.sleep(0.1)  # Đợi 100ms để đảm bảo việc xóa hoàn tất
 
-# Hàm đọc từng dòng của bàn phím
-def read_line(row):
-    GPIO.output(row, GPIO.HIGH)  # Kích hoạt hàng hiện tại
-    
-    for i, col in enumerate(COL_PINS):
-        if GPIO.input(col) == 1:
-            key_pressed = KEYPAD[ROW_PINS.index(row)][i]  # Lấy ký tự tương ứng
-            print(f"Key pressed: {key_pressed}")
-            data_input.append(key_pressed)  # Thêm ký tự vào data_input
-            
-            # Xóa màn hình LCD trước khi cập nhật nội dung mới
-            clear_lcd()
-            
-            # Hiển thị tiến trình nhập mật khẩu trên màn hình LCD
-            lcd.write_string("Nhap mat khau:")
-            lcd.cursor_pos = (1, 0)  # Di chuyển con trỏ đến dòng thứ hai
-            lcd.write_string('*' * len(data_input))  # Hiển thị dấu '*' cho mỗi ký tự được nhập
-            
-            time.sleep(0.3)  # Tạm dừng để tránh trùng lặp
-    GPIO.output(row, GPIO.LOW)  # Tắt hàng hiện tại
+
+def reset_lcd_to_default():
+    clear_lcd()  # Xóa nội dung trên LCD
+    lcd.write_string("Cua khoa")  # Hiển thị trạng thái mặc định, ví dụ "Cửa khóa"
+    lcd.cursor_pos = (1, 0)  # Di chuyển con trỏ xuống dòng 2
+    lcd.write_string("Nhap mat khau:")  # Hiển thị hướng dẫn nhập mật khẩu
+
 
 # Hàm kiểm tra mật khẩu
 def read_line(row):
@@ -167,7 +154,7 @@ def read_line(row):
             clear_lcd()
             
             # Hiển thị tiến trình nhập mật khẩu trên màn hình LCD
-            lcd.write_string("Nhap mat khau:")
+            lcd.write_string("Correct:")
             lcd.cursor_pos = (1, 0)  # Di chuyển con trỏ đến dòng thứ hai
             lcd.write_string('*' * len(data_input))  # Hiển thị dấu '*' cho mỗi ký tự được nhập
             
@@ -178,7 +165,7 @@ def read_line(row):
 def check_pass():
     global password_input, is_checking_password, Sender_email, pass_sender, Reciever_Email
     clear_lcd()  # Xóa màn hình LCD trước khi hiển thị thông báo
-    lcd.write_string('Nhập mật khẩu:')  # Hiển thị thông báo trên LCD
+    lcd.write_string('Correct :')  # Hiển thị thông báo trên LCD
     print(f'Dữ liệu đầu vào: {data_input}')
     
     while True:
@@ -190,80 +177,93 @@ def check_pass():
             is_checking_password = True  # Đặt cờ là True để cho biết đang kiểm tra mật khẩu
             password_input = ''.join(data_input)
 
-            clear_lcd()  # Xóa màn hình LCD trước khi hiển thị thông báo mới
+            # Không cần xóa LCD liên tục
             if password_input == password:
-                lcd.write_string('Mật khẩu đúng!')  # Hiển thị thông báo
+                lcd.clear()
+                lcd.write_string('---OPENDOOR---')
+                time.sleep(1)  # Đợi 1 giây để hiển thị thông báo "Mật khẩu đúng!"
                 print('Mật khẩu đúng!')
                 log_event_to_text_file("Mở cửa bằng mật khẩu")
-                GPIO.output(RELAY_PIN, GPIO.HIGH)  # Kích hoạt relay
+
+                # Mở relay để mở cửa
+                GPIO.output(RELAY_PIN, GPIO.HIGH)  # Kích hoạt relay (mở cửa)
                 time.sleep(5)  # Giữ cửa mở trong 5 giây
                 GPIO.output(RELAY_PIN, GPIO.LOW)  # Đóng cửa
 
+                # Sau khi đóng cửa, đặt lại LCD về trạng thái mặc định
+                reset_lcd_to_default()  # Gọi hàm đưa LCD về trạng thái mặc định
+                time.sleep(0.1)  # Cho phép màn hình cập nhật lại
             elif password_input == mode_changePass:
                 changePass()
             elif password_input == mode_resetPass:
                 resetPass()
             else:
-                lcd.write_string('Mật khẩu không đúng!')  # Hiển thị thông báo lỗi
+                lcd.clear()
+                lcd.write_string('WRONG PASSWORD')  # Hiển thị thông báo lỗi
                 print('Mật khẩu không đúng!')
-                GPIO.output(RELAY_PIN, GPIO.LOW)  # Tắt relay
+                GPIO.output(RELAY_PIN, GPIO.LOW)  # Đảm bảo cửa vẫn đóng
                 # Gửi email với ảnh đã chụp
-                SendEmail(Sender_email, pass_sender, Reciever_Email) 
-                
+                SendEmail(Sender_email, pass_sender, Reciever_Email)
+
             is_checking_password = False  # Đặt cờ là False sau khi kiểm tra xong
             clear_data_input()  # Xóa dữ liệu nhập sau khi kiểm tra
             time.sleep(2)  # Đợi 2 giây trước khi xóa màn hình
-            clear_lcd()  # Xóa màn hình sau khi kiểm tra
+            lcd.clear()  # Xóa màn hình sau khi hoàn thành kiểm tra
+  # Xóa màn hình sau khi hoàn thành kiểm tra
+  # Xóa màn hình sau khi kiểm tra
 
 def changePass():
     global password, new_pass1, new_pass2
-    clear_lcd()
-    lcd.write_string('--- Đổi mật khẩu ---')
+    clear_lcd()  # Xóa màn hình ngay khi bắt đầu
+    lcd.write_string('-- Change Pass --')
     print('--- Đổi mật khẩu ---')
     time.sleep(2)
     
     clear_data_input()
 
-    clear_lcd()
-    lcd.write_string("Nhập MK mới:")
-    
+    clear_lcd()  # Chỉ xóa màn hình trước khi hiển thị nội dung mới
+    lcd.write_string("--- New Pass ---")
+
+    # Nhập mật khẩu mới lần 1
     while True:
         if len(data_input) < 5:
             for row in ROW_PINS:
                 read_line(row)
             time.sleep(0.1)
-            clear_lcd()
-            lcd.write_string("Nhập MK mới:")
+
+            # Chỉ cập nhật dấu '*' khi có sự thay đổi trong data_input
             lcd.cursor_pos = (1, 0)
             lcd.write_string('*' * len(data_input))
 
-        if isBufferdata(data_input):
+        if isBufferdata(data_input):  # Khi đã nhập đủ dữ liệu
             insertData(new_pass1, data_input)
-            clear_data_input()
-            clear_lcd()
-            lcd.write_string("--- Nhập lại ---")
-            print("--- Nhập lại mật khẩu ---")
+            clear_data_input()  # Xóa dữ liệu nhập lần 1
+            lcd.clear()  # Xóa màn hình khi hoàn thành việc nhập
+            lcd.write_string("--- PASSWORD ---")
+            print("---- AGAIN ----")
             break
 
+    # Nhập lại mật khẩu lần 2
     while True:
         if len(data_input) < 5:
             for row in ROW_PINS:
                 read_line(row)
             time.sleep(0.1)
-            clear_lcd()
-            lcd.write_string("Nhập lại MK:")
+
+            # Hiển thị tiến trình nhập lại mật khẩu lần 2
             lcd.cursor_pos = (1, 0)
             lcd.write_string('*' * len(data_input))
 
-        if isBufferdata(data_input):
+        if isBufferdata(data_input):  # Khi đã nhập đủ lần 2
             insertData(new_pass2, data_input)
             break
 
     time.sleep(1)
 
+    # So sánh hai lần nhập mật khẩu
     if compareData(new_pass1, new_pass2):
-        clear_lcd()
-        lcd.write_string("--- Mật khẩu khớp ---")
+        lcd.clear()  # Chỉ xóa khi thực sự cần hiển thị nội dung khác
+        lcd.write_string("--- Success ---")
         print("--- Mật khẩu khớp ---")
         time.sleep(1)
         writeEpprom(new_pass2)
@@ -280,11 +280,9 @@ def changePass():
         # Ghi log khi thay đổi mật khẩu
         log_event_to_text_file("Đổi mật khẩu thành công")
 
-        clear_lcd()
+        lcd.clear()  # Xóa màn hình trước khi thông báo thành công
         lcd.write_string("Đổi MK thành công")
         time.sleep(2)
-
-
 def resetPass():
     global password
     clear_lcd()  # Xóa LCD trước khi hiển thị nội dung mới
@@ -296,7 +294,7 @@ def resetPass():
     
     # Bắt đầu quá trình nhập mật khẩu hiện tại để xác nhận
     clear_lcd()  # Xóa LCD trước khi hiển thị nội dung mới
-    lcd.write_string("Nhập MK hiện tại:")
+    lcd.write_string("--- PassWord ---")
 
     while True:
         if len(data_input) < 5:  # Giả sử mật khẩu có 5 ký tự
@@ -306,7 +304,7 @@ def resetPass():
 
             # Hiển thị tiến trình nhập mật khẩu hiện tại
             clear_lcd()  # Xóa màn hình trước khi cập nhật
-            lcd.write_string("Nhập MK hiện tại:")
+            lcd.write_string("Re-enter password")
             lcd.cursor_pos = (1, 0)  # Di chuyển con trỏ đến dòng thứ hai
             lcd.write_string('*' * len(data_input))  # Hiển thị dấu '*' đại diện cho ký tự đã nhập
 
@@ -314,7 +312,7 @@ def resetPass():
             if compareData(data_input, password):  # So sánh với mật khẩu hiện tại
                 clear_data_input()  # Xóa dữ liệu nhập sau khi xác nhận thành công
                 clear_lcd()  # Xóa màn hình trước khi thông báo thành công
-                lcd.write_string('MK đúng, đang reset...')
+                lcd.write_string('---resetting...---')
                 print('Mật khẩu đúng, sẵn sàng reset!')
                 
                 # Đợi 2 giây để thông báo thành công trước khi tiếp tục
@@ -335,7 +333,7 @@ def resetPass():
                         new_password = list(password)  # Chuyển đổi mật khẩu hiện tại thành danh sách
                         insertData(new_password, new_default_pass)  # Đặt lại mật khẩu mặc định
                         clear_lcd()  # Xóa LCD trước khi hiển thị thông báo mới
-                        lcd.write_string('Reset MK thành công')
+                        lcd.write_string('---reset successful---')
                         print('--- Reset mật khẩu thành công ---')
                         writeEpprom(pass_def)  # Giả lập ghi vào EEPROM
                         password = ''.join(new_password)  # Chuyển đổi danh sách trở lại chuỗi
@@ -355,7 +353,7 @@ def resetPass():
             else:
                 # Xử lý khi mật khẩu hiện tại không đúng
                 clear_lcd()  # Xóa màn hình trước khi thông báo lỗi
-                lcd.write_string('MK sai!')
+                lcd.write_string('---ERROR---')
                 print('Mật khẩu không đúng!')
                 
                 # Gửi email cảnh báo
@@ -365,158 +363,6 @@ def resetPass():
                 time.sleep(2)  # Hiển thị thông báo trong 2 giây
                 clear_lcd()  # Xóa màn hình sau khi thông báo sai mật khẩu
                 break  # Kết thúc nếu mật khẩu nhập sai
-def changePass():
-    global password, new_pass1, new_pass2
-    clear_lcd()  # Xóa màn hình LCD trước khi hiển thị nội dung mới
-    lcd.write_string('--- Doi mat khau ---')  # Hiển thị thông báo đổi mật khẩu
-    print('--- Đổi mật khẩu ---')
-    time.sleep(2)
-    
-    clear_data_input()
-    
-    # Nhập mật khẩu mới lần 1
-    clear_lcd()  # Xóa màn hình LCD trước khi yêu cầu nhập mật khẩu mới
-    lcd.write_string("Nhap MK moi:")
-    
-    while True:
-        if len(data_input) < 5:  # Giả sử mật khẩu có 5 ký tự
-            for row in ROW_PINS:
-                read_line(row)  # Gọi hàm để đọc ký tự từ bàn phím ma trận
-            time.sleep(0.1)  # Tạm dừng một chút để tránh việc lặp quá nhanh
-            
-            # Hiển thị tiến trình nhập mật khẩu trên LCD
-            clear_lcd()  # Xóa màn hình trước khi cập nhật
-            lcd.write_string("Nhap MK moi:")
-            lcd.cursor_pos = (1, 0)  # Di chuyển con trỏ đến dòng thứ hai
-            lcd.write_string('*' * len(data_input))  # Hiển thị dấu '*' đại diện cho ký tự đã nhập
-
-        if isBufferdata(data_input):
-            insertData(new_pass1, data_input)
-            clear_data_input()
-            clear_lcd()  # Xóa màn hình LCD trước khi yêu cầu nhập lại
-            lcd.write_string("--- Nhap lai ---")
-            print("--- Nhập lại mật khẩu ---")
-            break
-
-    # Nhập mật khẩu mới lần 2 để xác nhận
-    while True:
-        if len(data_input) < 5:  # Giả sử mật khẩu có 5 ký tự
-            for row in ROW_PINS:
-                read_line(row)  # Gọi hàm để đọc ký tự từ bàn phím ma trận
-            time.sleep(0.1)  # Tạm dừng một chút để tránh việc lặp quá nhanh
-            
-            # Hiển thị tiến trình nhập mật khẩu trên LCD
-            clear_lcd()  # Xóa màn hình trước khi cập nhật
-            lcd.write_string("Nhap lai MK:")
-            lcd.cursor_pos = (1, 0)
-            lcd.write_string('*' * len(data_input))  # Hiển thị dấu '*' đại diện cho ký tự đã nhập
-
-        if isBufferdata(data_input):
-            insertData(new_pass2, data_input)
-            break
-
-    time.sleep(1)
-    # Kiểm tra xem mật khẩu nhập lại có khớp với mật khẩu ban đầu không
-    if compareData(new_pass1, new_pass2):
-        clear_lcd()  # Xóa màn hình trước khi thông báo kết quả
-        lcd.write_string("--- Mat khau khop ---")
-        print("--- Mật khẩu khớp ---")
-        time.sleep(1)
-        writeEpprom(new_pass2)
-        password = ''.join(new_pass2)  # Gán mật khẩu mới
-
-    # Ghi mật khẩu mới vào file password.txt
-    try:
-        with open('password.txt', 'w') as file:
-            file.write(password)
-        print("Mật khẩu mới đã được lưu vào file.")
-    except IOError:
-        print("Không thể ghi mật khẩu vào file.")
-
-    clear_lcd()  # Xóa màn hình trước khi thông báo thành công
-    lcd.write_string("Doi MK thanh cong")
-    time.sleep(2)
-
-def resetPass():
-    global password
-    clear_lcd()  # Xóa LCD trước khi hiển thị nội dung mới
-    lcd.write_string('--- Reset Pass ---')  # Hiển thị "Reset Pass" trên LCD
-    print('--- Reset Pass ---')
-    time.sleep(2)  # Cho phép người dùng nhìn thấy thông báo trên LCD
-
-    clear_data_input()
-    
-    # Bắt đầu quá trình nhập mật khẩu hiện tại để xác nhận
-    clear_lcd()  # Xóa LCD trước khi hiển thị nội dung mới
-    lcd.write_string("Nhap MK hien tai:")
-
-    while True:
-        if len(data_input) < 5:  # Giả sử mật khẩu có 5 ký tự
-            for row in ROW_PINS:
-                read_line(row)  # Gọi hàm để đọc ký tự từ bàn phím ma trận
-            time.sleep(0.1)  # Tạm dừng một chút để tránh việc lặp quá nhanh
-
-            # Hiển thị tiến trình nhập mật khẩu hiện tại
-            clear_lcd()  # Xóa màn hình trước khi cập nhật
-            lcd.write_string("Nhap MK hien tai:")
-            lcd.cursor_pos = (1, 0)  # Di chuyển con trỏ đến dòng thứ hai
-            lcd.write_string('*' * len(data_input))  # Hiển thị dấu '*' đại diện cho ký tự đã nhập
-
-        if isBufferdata(data_input):  # Kiểm tra xem người dùng đã nhập đủ 5 ký tự
-            if compareData(data_input, password):  # So sánh với mật khẩu hiện tại
-                clear_data_input()  # Xóa dữ liệu nhập sau khi xác nhận thành công
-                clear_lcd()  # Xóa màn hình trước khi thông báo thành công
-                lcd.write_string('MK dung, dang reset...')
-                print('Mật khẩu đúng, sẵn sàng reset!')
-                
-                # Đợi 2 giây để thông báo thành công trước khi tiếp tục
-                time.sleep(2)
-
-                while True:
-                    key = None  # Đặt mặc định key là None để kiểm tra
-                    for row in ROW_PINS:
-                        GPIO.output(row, GPIO.HIGH)
-                        for i, col in enumerate(COL_PINS):
-                            if GPIO.input(col) == 1:
-                                key = KEYPAD[ROW_PINS.index(row)][i]
-                                time.sleep(0.3)  # Tránh trùng lặp khi nhấn
-                        GPIO.output(row, GPIO.LOW)
-
-                    if key == '#':  # Khi người dùng nhấn phím '#'
-                        new_default_pass = list(pass_def)  # Mật khẩu mặc định thành danh sách
-                        new_password = list(password)  # Chuyển đổi mật khẩu hiện tại thành danh sách
-                        insertData(new_password, new_default_pass)  # Đặt lại mật khẩu mặc định
-                        clear_lcd()  # Xóa LCD trước khi hiển thị thông báo mới
-                        lcd.write_string('Reset MK thanh cong')
-                        print('--- Reset mật khẩu thành công ---')
-                        writeEpprom(pass_def)  # Giả lập ghi vào EEPROM
-                        password = ''.join(new_password)  # Chuyển đổi danh sách trở lại chuỗi
-
-                        # Ghi mật khẩu mới vào file password.txt
-                        try:
-                            with open('password.txt', 'w') as file:
-                                file.write(password)
-                            print("Mật khẩu mới đã được lưu vào file.")
-                        except IOError:
-                            print("Không thể ghi mật khẩu vào file.")
-
-                        clear_data_input()  # Xóa dữ liệu nhập
-                        time.sleep(2)  # Hiển thị thông báo thành công trong 2 giây
-                        return  # Thoát hàm reset sau khi hoàn thành
-            else:
-                # Xử lý khi mật khẩu hiện tại không đúng
-                clear_lcd()  # Xóa màn hình trước khi thông báo lỗi
-                lcd.write_string('MK sai!')
-                print('Mật khẩu không đúng!')
-                
-                # Gửi email cảnh báo
-                SendEmail(Sender_email, pass_sender, Reciever_Email)
-
-                clear_data_input()  # Xóa dữ liệu nhập khi sai mật khẩu
-                time.sleep(2)  # Hiển thị thông báo trong 2 giây
-                break  # Kết thúc nếu mật khẩu nhập sai
-
-
 # -------------xử lý dữ liệu từ cảm biến nghiêng --------------
 def Tilt_Handle():
     global is_checking_password,Sender_email,Reciever_Email,pass_sender
