@@ -4,6 +4,8 @@ import os
 import shutil
 from datetime import datetime
 from flask_socketio import SocketIO
+import subprocess
+
 
 app = Flask(__name__)
 app.secret_key = 'your_secret_key'
@@ -57,6 +59,7 @@ def sync_users_from_dataset():
     db.session.commit()
 
 # Thêm người dùng mới
+# Thêm người dùng mới
 @app.route('/add', methods=['POST'])
 def add_user():
     if request.method == 'POST':
@@ -76,7 +79,16 @@ def add_user():
         db.session.commit()
 
         flash('Thêm người dùng thành công!', 'success')
+
+        # Gọi lại Face_setup.py để tạo lại mô hình
+        try:
+            subprocess.run(['python3', 'Face_setup.py'], check=True)
+            flash('Mô hình đã được cập nhật thành công!', 'success')
+        except subprocess.CalledProcessError as e:
+            flash(f'Có lỗi khi cập nhật mô hình: {e}', 'danger')
+
         return redirect(url_for('index'))
+
 
 # Sửa thông tin người dùng
 @app.route('/edit/<int:id>', methods=['GET', 'POST'])

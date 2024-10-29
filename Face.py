@@ -27,6 +27,10 @@ GPIO.setmode(GPIO.BCM)
 TILT_PIN =24
 RELAY_PIN = 17
 PIR_PIN=18
+LED_PIN =23
+BUZZER =25
+GPIO.setup(LED_PIN,GPIO.OUT)
+GPIO.setup(BUZZER,GPIO.OUT)
 GPIO.setup(PIR_PIN,GPIO.IN)
 GPIO.setup(TILT_PIN,GPIO.IN)
 GPIO.setup(RELAY_PIN, GPIO.OUT)
@@ -56,7 +60,12 @@ motion_detected_time = 0
 in_num=0
 doorUnlock = False  # Trạng thái mở cửa ban đầu là False
 is_checking_password = False
-
+# Khai báo từ điển để lưu thời gian nhận diện gần nhất cho mỗi người dùng
+last_recognition_time = {}
+# Thời gian giãn cách tối thiểu giữa các lần nhận diện (tính bằng giây)
+min_recognition_interval = 10  # Ví dụ: 10 giây
+# Khai báo thời gian chờ trước khi kết luận "Unknown" (ví dụ 1 giây)
+delay_before_unknown = 5  # Ví dụ: 1 giây
 # Bảng bàn phím 4x4
 KEYPAD = [
     ['1', '2', '3', 'A'],
@@ -129,17 +138,13 @@ def writeEpprom(new_pass):
     # Thực hiện ghi vào EEPROM ở đây
 def clear_lcd():
     lcd.clear()
-    lcd.home()  # Đưa con trỏ về vị trí ban đầu
-    time.sleep(0.1)  # Đợi 100ms để đảm bảo việc xóa hoàn tất
+    lcd.home()  # Ðua con tr? v? v? trí ban d?u
+    time.sleep(0.1)  # Ð?i 100ms d? d?m b?o vi?c xóa hoàn t?t
 
 
 def reset_lcd_to_default():
     clear_lcd()  # Xóa nội dung trên LCD
-    lcd.write_string("Cua khoa")  # Hiển thị trạng thái mặc định, ví dụ "Cửa khóa"
-    lcd.cursor_pos = (1, 0)  # Di chuyển con trỏ xuống dòng 2
-    lcd.write_string("Nhap mat khau:")  # Hiển thị hướng dẫn nhập mật khẩu
-
-
+    lcd.write_string("---CLOSEDOOR---")  # Hiển thị trạng thái mặc định "Cửa khóa"
 # Hàm kiểm tra mật khẩu
 def read_line(row):
     GPIO.output(row, GPIO.HIGH)  # Kích hoạt hàng hiện tại
@@ -154,7 +159,7 @@ def read_line(row):
             clear_lcd()
             
             # Hiển thị tiến trình nhập mật khẩu trên màn hình LCD
-            lcd.write_string("Correct:")
+            lcd.write_string("Checking pass:")
             lcd.cursor_pos = (1, 0)  # Di chuyển con trỏ đến dòng thứ hai
             lcd.write_string('*' * len(data_input))  # Hiển thị dấu '*' cho mỗi ký tự được nhập
             
@@ -165,9 +170,8 @@ def read_line(row):
 def check_pass():
     global password_input, is_checking_password, Sender_email, pass_sender, Reciever_Email
     clear_lcd()  # Xóa màn hình LCD trước khi hiển thị thông báo
-    lcd.write_string('Correct :')  # Hiển thị thông báo trên LCD
-    print(f'Dữ liệu đầu vào: {data_input}')
-    
+    lcd.write_string('Checking pass:')  # Hiển thị thông báo đang kiểm tra trên LCD
+
     while True:
         if len(data_input) < 5:  # Giả sử mật khẩu có 5 ký tự
             for row in ROW_PINS:
@@ -177,7 +181,6 @@ def check_pass():
             is_checking_password = True  # Đặt cờ là True để cho biết đang kiểm tra mật khẩu
             password_input = ''.join(data_input)
 
-            # Không cần xóa LCD liên tục
             if password_input == password:
                 lcd.clear()
                 lcd.write_string('---OPENDOOR---')
@@ -192,7 +195,6 @@ def check_pass():
 
                 # Sau khi đóng cửa, đặt lại LCD về trạng thái mặc định
                 reset_lcd_to_default()  # Gọi hàm đưa LCD về trạng thái mặc định
-                time.sleep(0.1)  # Cho phép màn hình cập nhật lại
             elif password_input == mode_changePass:
                 changePass()
             elif password_input == mode_resetPass:
@@ -200,6 +202,7 @@ def check_pass():
             else:
                 lcd.clear()
                 lcd.write_string('WRONG PASSWORD')  # Hiển thị thông báo lỗi
+                open_buzzer(1)  # Buzzer bật 1 giây khi nhập sai mật khẩu
                 print('Mật khẩu không đúng!')
                 GPIO.output(RELAY_PIN, GPIO.LOW)  # Đảm bảo cửa vẫn đóng
                 # Gửi email với ảnh đã chụp
@@ -208,7 +211,8 @@ def check_pass():
             is_checking_password = False  # Đặt cờ là False sau khi kiểm tra xong
             clear_data_input()  # Xóa dữ liệu nhập sau khi kiểm tra
             time.sleep(2)  # Đợi 2 giây trước khi xóa màn hình
-            lcd.clear()  # Xóa màn hình sau khi hoàn thành kiểm tra
+            reset_lcd_to_default()  # Đặt lại trạng thái màn hình về mặc định
+  # Xóa màn hình sau khi hoàn thành kiểm tra
   # Xóa màn hình sau khi hoàn thành kiểm tra
   # Xóa màn hình sau khi kiểm tra
 
@@ -363,25 +367,53 @@ def resetPass():
                 time.sleep(2)  # Hiển thị thông báo trong 2 giây
                 clear_lcd()  # Xóa màn hình sau khi thông báo sai mật khẩu
                 break  # Kết thúc nếu mật khẩu nhập sai
-# -------------xử lý dữ liệu từ cảm biến nghiêng --------------
-def Tilt_Handle():
-    global is_checking_password,Sender_email,Reciever_Email,pass_sender
-    tilt_sensor = GPIO.input(TILT_PIN)  # Đọc giá trị từ cảm biến nghiêng
+#--------------------------------------------------------------
+def detect_motion():
+    try:
+        print("Đang chờ cảm biến chuyển động (PIR)...")
+        time.sleep(2)  # Đợi cảm biến khởi động
+        
+        while True:
+            # Kiểm tra nếu có chuyển động
+            if GPIO.input(PIR_PIN):
+                print("Chuyển động được phát hiện! Bật đèn.")
+                GPIO.output(LED_PIN, GPIO.HIGH)  # Bật đèn LED
+                time.sleep(5)  # Đèn bật trong 5 giây (thời gian tùy chỉnh)
+            else:
+                GPIO.output(LED_PIN, GPIO.LOW)  # Tắt đèn LED
+            
+            time.sleep(0.1)  # Đợi một chút trước khi kiểm tra tiếp
+
+    except KeyboardInterrupt:
+        print("Chương trình kết thúc.")
     
-    # Kiểm tra nếu không đang kiểm tra mật khẩu và cảm biến ở trạng thái kích hoạt
-    if not is_checking_password and tilt_sensor:  
-        global i
-        i += 1  # Tăng biến đếm ảnh
-        
-        # Tạo đường dẫn cho ảnh
-        image_path = f"/home/Tun/Desktop/FacePass2/image/image_{i}.jpg"
-        
-        picam2.capture(image_path)  # Chụp ảnh và lưu vào đường dẫn đã tạo
-        print('A photo has been taken')  # In thông báo đã chụp ảnh
-        
-        time.sleep(10)  # Chờ 10 giây trước khi có thể chụp tiếp
-        
-         
+    finally:
+        GPIO.cleanup()  # Reset các cài đặt GPIO khi kết thúc chương trình
+# -------------xử lý dữ liệu từ cảm biến nghiêng ---------------
+def Tilt_Handle():
+    global is_checking_password, Sender_email, Reciever_Email, pass_sender
+
+    # Kiểm tra trạng thái của cảm biến nghiêng
+    if GPIO.input(TILT_PIN):  # Kiểm tra nếu cảm biến nghiêng bị kích hoạt
+        print("Phát hiện cảm biến nghiêng, có thể có xâm nhập!")
+
+        # Chụp ảnh và lưu vào thư mục uploads sử dụng hàm capture_and_save_image
+        frame = picam2.capture_array()  # Lấy khung hình từ camera
+        img_filename = capture_and_save_image(frame, "tilt_intrusion")  # Lưu ảnh và lấy đường dẫn
+
+        print(f"Ảnh xâm nhập đã được lưu: {img_filename}")
+
+        # Gửi email với ảnh đính kèm từ thư mục uploads
+        SendEmail(Sender_email, pass_sender, Reciever_Email)
+
+        # Bật còi báo động (buzzer)
+        GPIO.output(BUZZER, GPIO.HIGH)
+        open_buzzer(2)  # Kêu trong 2 giây nếu phát hiện xâm nhập nghiêng
+
+
+        # Đợi 10 giây trước khi kiểm tra lại để tránh spam
+        time.sleep(10)
+  # Tạm dừng 10 giây trước khi tiếp tục kiểm tra
 
 # ------------- send email khi phát hiện xâm nhập -------------
 def get_latest_image_path(upload_folder):
@@ -483,7 +515,7 @@ def capture_and_save_image(frame, name):
     timestamp = time.strftime('%Y-%m-%d_%H-%M-%S')
     img_filename = f"{output_dir}/{name}_{timestamp}.jpg"
     cv2.imwrite(img_filename, frame)
-    print(f"?nh dã du?c luu: {img_filename}")
+    print(f"anh dã duoc luu: {img_filename}")
     return img_filename  # Tr? v? du?ng d?n ?nh
 def delayed_email_if_unknown(sender, pass_sender, receiver):
     time.sleep(10)  # Chờ 10 giây
@@ -514,106 +546,111 @@ def delay_khoa_cua(delay_time):
     print(f"Đợi {delay_time} giây trước khi khóa cửa...")
     time.sleep(delay_time)
     khoa_cua()
-
-# Sử dụng các hàm này trong quá trình nhận diện khuôn mặt
-import cv2
-import numpy as np
-import face_recognition
-import threading
-import time
-
+def check_face_recognition(face_encoding):
+    distances = face_recognition.face_distance(known_face_encodings, face_encoding)
+    best_match_index = np.argmin(distances)
+    
+    if distances[best_match_index] < face_recognition_threshold:
+        return known_face_ids[best_match_index]  # Trả về ID nếu khớp
+    else:
+        return None  # Trả về None nếu không khớp
+# Sửa đổi vòng lặp nhận diện khuôn mặt
+def open_buzzer(thời_gian=1):
+    GPIO.output(BUZZER, GPIO.HIGH)  # Bật buzzer
+    time.sleep(thời_gian)           # Giữ buzzer trong khoảng thời gian nhất định
+    GPIO.output(BUZZER, GPIO.LOW)    # Tắt buzzer
 def recognize_faces():
-    global doorUnlock, is_checking_password, prevTime, se, last_recognized_face, last_recognition_time
-
-    # Biến để lưu khuôn mặt đã nhận diện trước đó và thời gian nhận diện
-    last_recognized_face = None
-    last_recognition_time = 0  # Lưu thời gian nhận diện trước đó
-
+    global doorUnlock, is_checking_password, prevTime, last_recognized_face, last_recognition_time
+    
+    # Khởi tạo cờ unknown_timeout_flag
+    unknown_timeout_flag = False
+    
+    # Sửa đổi vòng lặp nhận diện khuôn mặt
     while True:
         # Chụp frame từ Picamera2
         frame = picam2.capture_array()
-
+        
         # Chuyển đổi frame sang định dạng BGR
         frame_bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
-
-        # Hiển thị khung hình ngay lập tức
-        cv2.imshow("Camera - Face Detection and Recognition", frame_bgr)
-
-        # Lấy thời gian hiện tại
-        current_time = time.time()
-
-        # Kiểm tra nếu đã qua 10 giây từ lần nhận diện trước
-        if current_time - last_recognition_time >= 10:
-            # Chuyển frame sang ảnh xám để nhận diện khuôn mặt
-            gray = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
-
-            # Phát hiện khuôn mặt trong ảnh
-            faces = face_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5, minSize=(30, 30))
-
-            if len(faces) == 0:
-                print("Không có khuôn mặt nào được phát hiện.")
-            else:
-                print(f"Phát hiện {len(faces)} khuôn mặt.")
-
-                for (x, y, w, h) in faces:
-                    # Vẽ hình chữ nhật quanh khuôn mặt
-                    cv2.rectangle(frame_bgr, (x, y), (x + w, y + h), (255, 0, 0), 2)
-
-                    # Cắt khuôn mặt từ frame
-                    face_image = frame_bgr[y:y + h, x:x + w]
-                    face_rgb = cv2.cvtColor(face_image, cv2.COLOR_BGR2RGB)
-
-                    # Trích xuất đặc trưng khuôn mặt
-                    face_encoding = face_recognition.face_encodings(face_rgb)
-
-                    if len(face_encoding) == 0:
-                        print("Không trích xuất được đặc trưng khuôn mặt.")
-                    else:
-                        print("Trích xuất đặc trưng khuôn mặt thành công.")
-                        
-                        # So sánh với các encoding đã lưu
-                        distances = face_recognition.face_distance(known_face_encodings, face_encoding[0])
-                        best_match_index = np.argmin(distances)  # Lấy chỉ số của khoảng cách nhỏ nhất
-
-                        # Kiểm tra xem khoảng cách có nhỏ hơn ngưỡng không
-                        if distances[best_match_index] < face_recognition_threshold:
-                            name = known_face_ids[best_match_index]
+        
+        # Chuyển frame sang ảnh xám để nhận diện khuôn mặt
+        gray = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
+        
+        # Phát hiện khuôn mặt trong ảnh
+        faces = face_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5, minSize=(30, 30))
+        
+        if len(faces) > 0:
+            for (x, y, w, h) in faces:
+                cv2.rectangle(frame_bgr, (x, y), (x + w, y + h), (255, 0, 0), 2)
+                
+                # Cắt khuôn mặt từ frame
+                face_image = frame[y:y + h, x:x + w]
+                face_rgb = cv2.cvtColor(face_image, cv2.COLOR_BGR2RGB)
+                
+                # Trích xuất đặc trưng khuôn mặt
+                face_encoding = face_recognition.face_encodings(face_rgb)
+                
+                if len(face_encoding) > 0:
+                    name = check_face_recognition(face_encoding[0])
+                    
+                    if name:
+                        # Nếu nhận diện được người dùng
+                        unknown_timeout_flag = False  # Đặt lại cờ nếu nhận diện đúng người dùng
+                        current_time = time.time()
+                        if name not in last_recognition_time or (current_time - last_recognition_time[name]) > min_recognition_interval:
                             print(f"Mở khóa cửa cho người dùng: {name}")
-                            log_event_to_text_file(f"Mở cửa cho người dùng ID: {name}")
-                            # Gọi hàm mở khóa cửa
-                            mo_khoa_cua()
-
-                            # Kiểm tra nếu người nhận diện trước đó không phải là cùng người
-                            if last_recognized_face != name:
-                                # Nếu là khuôn mặt mới hoặc không trùng, gửi email và lưu khuôn mặt mới
-                                threading.Thread(target=delayed_email_if_unknown, args=(Sender_email, pass_sender, Reciever_Email)).start()
-                                last_recognized_face = name  # Cập nhật khuôn mặt nhận diện trước đó
-                                print(f"Gửi email cho người dùng: {name}")
-                            else:
-                                print(f"Khuôn mặt {name} đã nhận diện trước đó, không gửi email lại.")
-                        else:
-                            # Nếu không nhận diện được thì coi là Unknown
-                            name = "Unknown"
-                            img_filename = capture_and_save_image(frame_bgr, name)  # Lưu ảnh người không xác định
-                            print(f"Người không xác định, gửi email với ảnh: {img_filename}")
-                            threading.Thread(target=SendEmail, args=(Sender_email, pass_sender, Reciever_Email)).start()
-                            last_recognized_face = None  # Đặt lại vì đây là người lạ
-
-                    # Cập nhật thời gian nhận diện
-                    last_recognition_time = current_time
-
+                            last_recognition_time[name] = current_time
+                            threading.Thread(target=mo_khoa_cua).start()
+                            
+                            # Sử dụng luồng riêng để chụp và lưu ảnh
+                            img_filename = capture_and_save_image(frame_bgr, name)
+                    
+                    else:
+                        # Đợi trước khi kết luận là "Unknown"
+                        if not unknown_timeout_flag:
+                            start_unknown_time = time.time()
+                            unknown_timeout_flag = True  # Đặt cờ để bắt đầu đợi
+                        
+                        elapsed_time = time.time() - start_unknown_time
+                        
+                        # Đợi đến khi thời gian đã trôi qua để xác định là "Unknown"
+                        if elapsed_time >= delay_before_unknown:
+                            name = check_face_recognition(face_encoding[0])
+                            if not name:
+                                name = "Unknown"
+                                current_time = time.time()
+                                if "Unknown" not in last_recognition_time or (current_time - last_recognition_time["Unknown"]) > min_recognition_interval:
+                                    last_recognition_time["Unknown"] = current_time
+                                    threading.Thread(target=khoa_cua).start()
+                                    open_buzzer(1)
+                                    # Chụp và lưu ảnh cho người không xác định
+                                    img_filename = capture_and_save_image(frame_bgr, name)
+                                    threading.Thread(target=SendEmail, args=(Sender_email, pass_sender, Reciever_Email)).start()
+                    
+                    # Hiển thị ID trên khung hình
+                    cv2.putText(frame_bgr, name, (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2)
+        
+        # Hiển thị frame với các khuôn mặt được đánh dấu
+        cv2.imshow("Camera - Face Detection and Recognition", frame_bgr)
+        
         # Nhấn 'q' để thoát
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break
 
-    cv2.destroyAllWindows()
 
 
 face_thread = threading.Thread(target=recognize_faces)
 password_thread = threading.Thread(target=check_pass)
+motion_thread = threading.Thread(target=detect_motion)
+tilt_thread = threading.Thread(target=Tilt_Handle)
 
-password_thread.start()
+# Khởi động luồng xử lý cảm biến nghiêng
+tilt_thread.start()
+
+# Đảm bảo các luồng khác vẫn hoạt động song song
 face_thread.start()
+password_thread.start()
+motion_thread.start()
 
 cv2.imshow("Camera - Face Detection and Recognition", frame_bgr)
 cv2.waitKey(1)
