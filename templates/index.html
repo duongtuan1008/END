@@ -16,20 +16,40 @@
     <style>
         @import url("https://fonts.googleapis.com/css2?family=Black+Ops+One&family=Bruno+Ace&family=Foldit:wght@100;200&family=Monoton&family=Press+Start+2P&display=swap");
     </style>
+    
 </head>
 <body>
     <div id="header">
-        <div class="nav">
-            <a href="/index.html">
-                <div id="logo">
-                    <img src="/static/img/cctv-camera.png" alt="Logo" />
-                    <div class="title" data-title="Tunsneaker"></div>
-                </div>
-            </a>
-        </div>
+        <nav class="navbar">
+            <div class="logo">Smart Security</div>
+            <ul class="menu">
+                <li><a href="{{ url_for('index') }}">Trang chủ</a></li>
+                <li><a href="{{ url_for('manage_password') }}">Quản lý mật khẩu</a></li>
+                <li><a href="#">Cài đặt</a></li>
+                <li><a href="#">Trợ giúp</a></li>
+            </ul>
+        </nav>
     </div>
 
     <div id="boder">
+        <main class="dashboard">
+            <!-- Cảnh báo chuyển động -->
+            <section class="motion-alert">
+                <h1>Trạng thái chuyển động</h1>
+                <div id="motion-status" class="status">
+                        <ul id="motion-log">
+                            {% for line in log_lines %}
+                                <li>{{ line }}</li>
+                            {% endfor %}
+                        </ul>
+                </div>
+            </section>
+            <section class="btndoor">
+                <button id="submit-on">OPEN DOOR</button>
+                <button id="submit-off">CLOSE DOOR</button>
+            </section>
+        </main>
+    
         <div class="container-boder">
             <div class="container">
                 <h2>Danh sách ảnh:</h2>
@@ -96,9 +116,6 @@
                                 {% endfor %}
                             </tbody>
                         </table>
-                        <div class="container">
-                            <a href="{{ url_for('manage_password') }}" class="btn btn-primary">Đi đến trang quản lý mật khẩu</a>
-                        </div>
                     </div>
                 </div>
             </div>
@@ -113,6 +130,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/toastr.js/latest/toastr.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.5.1/socket.io.min.js"></script>
     <script src="/static/js/index.js"></script>
   </body>
 </html>

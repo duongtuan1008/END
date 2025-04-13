@@ -1,9 +1,30 @@
 body {
     font-family: Arial, sans-serif;
-    background-color: #f8f9fa;
-    padding-top: 20px;
 }
-
+.navbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background-color: #007bff;
+    padding: 1rem 2rem;
+    color: #fff;
+}
+  
+.navbar .logo {
+    font-size: 1.5rem;
+    font-weight: bold;
+}
+  
+.navbar .menu {
+    list-style: none;
+    display: flex;
+    gap: 1.5rem;
+}
+  
+.navbar .menu li a {
+    color: #fff;
+    text-decoration: none;
+}
 /* Thiết kế cho phần ô nhập mật khẩu */
 .password-box-container {
     display: flex;

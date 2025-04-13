@@ -5,6 +5,9 @@ import shutil
 from datetime import datetime
 from flask_socketio import SocketIO
 import subprocess
+import RPi.GPIO as GPIO
+import threading
+import time
 
 
 app = Flask(__name__)
@@ -16,6 +19,31 @@ UPLOAD_FOLDER = 'uploads'
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER  # Gán giá trị của UPLOAD_FOLDER vào app.config
 PASSWORD_FILE = 'password.txt'
 LOG_FILE = 'door_access_log.txt'  # Bạn có thể thay đổi tên file và đường dẫn nếu cần
+DETECT_FILE = 'motion_log.txt'
+
+#-----------------------------------------------------------------------
+GPIO.setmode(GPIO.BCM)
+RELAY_PIN = 17  # Chọn chân GPIO cho relay
+GPIO.setup(RELAY_PIN, GPIO.OUT)
+
+@app.route('/open_door', methods=['POST'])
+def open_door():
+    try:
+        # Thay đổi trạng thái relay (ví dụ bật relay)
+        GPIO.output(RELAY_PIN, GPIO.HIGH)  # Relay bật
+        time.sleep(10)
+        GPIO.output(RELAY_PIN, GPIO.LOW)  # Relay bật
+        return jsonify(success=True)
+    except Exception as e:
+        return jsonify(success=False, error=str(e))
+@app.route('/close_door', methods=['POST'])
+def close_door():
+    try:
+        # Thay đổi trạng thái relay (ví dụ bật relay)
+        GPIO.output(RELAY_PIN, GPIO.LOW)  # Relay bậtt
+        return jsonify(success=True)
+    except Exception as e:
+        return jsonify(success=False, error=str(e))
 # Tạo thư mục uploads nếu chưa tồn tại
 if not os.path.exists(UPLOAD_FOLDER):
     os.makedirs(UPLOAD_FOLDER)
@@ -282,14 +310,32 @@ def view_log():
         print("Log file does not exist.")
     
     return render_template('pass.html', log_lines=log_lines)
+#-------------------------------------------------------
+# Hàm ghi log chuyển động vào file
+def log_motion_detected():
+    with open("motion_log.txt", "w") as log_file:  # Mở file ở chế độ append
+        detect_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        log_file.write(f"Chuyển động phát hiện lúc: {detect_time}\n")
+        print(f"Đã ghi nhật ký: {detect_time}")
+        # Gửi thông báo về trạng thái chuyển động qua WebSocket
+        socketio.emit('motion_status', {'status': f"Chuyển động phát hiện lúc: {detect_time}"})
 
+    # Lập lịch gọi lại hàm sau 5 giây
+    threading.Timer(5, log_motion_detected).start()
+
+# Bắt đầu cập nhật lần đầu tiên
+log_motion_detected()
 #-------------------------------------------------------
 # Route cho trang chính (index) hiển thị người dùng và ảnh
 @app.route('/')
 def index():
+    log_lines = []
+    if os.path.exists("motion_log.txt"):
+        with open("motion_log.txt", "r") as log_file:
+            log_lines = log_file.readlines()
     users = User.query.all()  # Giả sử có người dùng
     images = get_images()  # Lấy danh sách ảnh
-    return render_template('index.html', users=users, images=images)
+    return render_template('index.html', users=users, images=images,log_lines=log_lines)
 
 # Route để phục vụ tệp từ thư mục uploads
 @app.route('/uploads/<filename>')

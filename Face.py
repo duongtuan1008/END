@@ -15,16 +15,31 @@ import face_recognition
 from datetime import datetime
 import datetime
 import os
+import serial
 from RPLCD.i2c import CharLCD
-
+import pickle
+from pyfingerprint.pyfingerprint import PyFingerprint
+import mysql.connector
 # Khởi tạo màn hình LCD
 lcd = CharLCD('PCF8574', 0x27)  # Thay '0x27' bằng địa chỉ I2C của LCD (kiểm tra bằng lệnh i2cdetect)
 
+# Hàm kết nối MySQL
+def connect_db():
+    try:
+        conn = mysql.connector.connect(
+            host="localhost",
+            user="root",  # Thay bằng user MySQL của bạn
+            password="100803",  # Thay bằng mật khẩu MySQL
+            database="door_access"
+        )
+        return conn
+    except mysql.connector.Error as err:
+        print(f"❌ Lỗi kết nối MySQL: {err}")
+        return None
 
 # Cấu hình GPIO
 GPIO.setwarnings(False)
 GPIO.setmode(GPIO.BCM)
-TILT_PIN =24
 RELAY_PIN = 17
 PIR_PIN=18
 LED_PIN =23
@@ -32,7 +47,6 @@ BUZZER =25
 GPIO.setup(LED_PIN,GPIO.OUT)
 GPIO.setup(BUZZER,GPIO.OUT)
 GPIO.setup(PIR_PIN,GPIO.IN)
-GPIO.setup(TILT_PIN,GPIO.IN)
 GPIO.setup(RELAY_PIN, GPIO.OUT)
 # Định nghĩa chân GPIO cho hàng và cột
 ROW_PINS = [6, 13, 19, 26]  # Các chân cho hàng R1, R2, R3, R4
@@ -138,8 +152,8 @@ def writeEpprom(new_pass):
     # Thực hiện ghi vào EEPROM ở đây
 def clear_lcd():
     lcd.clear()
-    lcd.home()  # Ðua con tr? v? v? trí ban d?u
-    time.sleep(0.1)  # Ð?i 100ms d? d?m b?o vi?c xóa hoàn t?t
+    lcd.home()  # Ðua con tro ve vi trí ban d?u
+    time.sleep(0.1)  
 
 
 def reset_lcd_to_default():
@@ -186,7 +200,8 @@ def check_pass():
                 lcd.write_string('---OPENDOOR---')
                 time.sleep(1)  # Đợi 1 giây để hiển thị thông báo "Mật khẩu đúng!"
                 print('Mật khẩu đúng!')
-                log_event_to_text_file("Mở cửa bằng mật khẩu")
+                log_access("User", "Password", "Mở cửa bằng mật khẩu")
+
 
                 # Mở relay để mở cửa
                 GPIO.output(RELAY_PIN, GPIO.HIGH)  # Kích hoạt relay (mở cửa)
@@ -282,7 +297,7 @@ def changePass():
             print("Không thể ghi mật khẩu vào file.")
 
         # Ghi log khi thay đổi mật khẩu
-        log_event_to_text_file("Đổi mật khẩu thành công")
+        log_access("Admin", "Change Password", "Đổi mật khẩu thành công")
 
         lcd.clear()  # Xóa màn hình trước khi thông báo thành công
         lcd.write_string("Đổi MK thành công")
@@ -308,7 +323,7 @@ def resetPass():
 
             # Hiển thị tiến trình nhập mật khẩu hiện tại
             clear_lcd()  # Xóa màn hình trước khi cập nhật
-            lcd.write_string("Re-enter password")
+            lcd.write_string("R1enter password")
             lcd.cursor_pos = (1, 0)  # Di chuyển con trỏ đến dòng thứ hai
             lcd.write_string('*' * len(data_input))  # Hiển thị dấu '*' đại diện cho ký tự đã nhập
 
@@ -368,52 +383,61 @@ def resetPass():
                 clear_lcd()  # Xóa màn hình sau khi thông báo sai mật khẩu
                 break  # Kết thúc nếu mật khẩu nhập sai
 #--------------------------------------------------------------
+try:
+    radar = serial.Serial('/dev/ttyAMA3', baudrate=256000, timeout=1)  # UART Radar HLK-LD2410B
+    print("✅ Kết nối cảm biến Radar HLK-LD2410B thành công!")
+except Exception as e:
+    print(f"❌ Lỗi kết nối cảm biến Radar: {e}")
+    exit(1)
+def log_motion_detected():
+    conn = connect_db()
+    if conn is None:
+        print("⚠ Không thể kết nối MySQL, bỏ qua ghi nhật ký chuyển động.")
+        return
+    
+    try:
+        cursor = conn.cursor()
+        detect_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        sql = "INSERT INTO motion_log (detect_time, description) VALUES (%s, %s)"
+        values = (detect_time, "Phát hiện chuyển động!")
+        cursor.execute(sql, values)
+        conn.commit()
+        print(f"✅ Ghi nhật ký vào `motion_log`: {detect_time}")
+    except mysql.connector.Error as err:
+        print(f"❌ Lỗi MySQL khi ghi nhật ký vào `motion_log`: {err}")
+    finally:
+        cursor.close()
+        conn.close()
+
 def detect_motion():
     try:
-        print("Đang chờ cảm biến chuyển động (PIR)...")
-        time.sleep(2)  # Đợi cảm biến khởi động
-        
         while True:
-            # Kiểm tra nếu có chuyển động
-            if GPIO.input(PIR_PIN):
-                print("Chuyển động được phát hiện! Bật đèn.")
-                GPIO.output(LED_PIN, GPIO.HIGH)  # Bật đèn LED
-                time.sleep(5)  # Đèn bật trong 5 giây (thời gian tùy chỉnh)
-            else:
-                GPIO.output(LED_PIN, GPIO.LOW)  # Tắt đèn LED
-            
-            time.sleep(0.1)  # Đợi một chút trước khi kiểm tra tiếp
+            if radar.in_waiting > 10:  # Ð?m b?o có d? d? li?u
+                data = radar.read(radar.in_waiting)  # Ð?c d? li?u
+                if len(data) < 10:
+                    continue  # Bo qua neu du lieu quá ngan
 
-    except KeyboardInterrupt:
-        print("Chương trình kết thúc.")
-    
-    finally:
-        GPIO.cleanup()  # Reset các cài đặt GPIO khi kết thúc chương trình
-# -------------xử lý dữ liệu từ cảm biến nghiêng ---------------
-def Tilt_Handle():
-    global is_checking_password, Sender_email, Reciever_Email, pass_sender
+                if data[0] == 0xF4 and data[1] == 0xF3:  # Header hop ly
+                    # ?? **TH? CÁC V? TRÍ KHÁC NHAU**
+                    possible_distances = [
+                        int.from_bytes(data[9:11], byteorder="little"),  # V? trí 1
+                        int.from_bytes(data[10:12], byteorder="little"), # V? trí 2
+                        int.from_bytes(data[11:13], byteorder="little")  # V? trí 3
+                    ]
 
-    # Kiểm tra trạng thái của cảm biến nghiêng
-    if GPIO.input(TILT_PIN):  # Kiểm tra nếu cảm biến nghiêng bị kích hoạt
-        print("Phát hiện cảm biến nghiêng, có thể có xâm nhập!")
+                    for distance in possible_distances:
+                        if 0 < distance <= 50:  
+                            print(f"Phát hiện có người trong pham vi {distance} cm!")
+                            GPIO.output(LED_PIN, GPIO.HIGH)  # Bat LED caanh báo
+                            log_motion_detected()
+                            time.sleep(2)
+                            break
+                        else:
+                            GPIO.output(LED_PIN, GPIO.LOW)  # Tat LED n?u không có ngu?i g?n
 
-        # Chụp ảnh và lưu vào thư mục uploads sử dụng hàm capture_and_save_image
-        frame = picam2.capture_array()  # Lấy khung hình từ camera
-        img_filename = capture_and_save_image(frame, "tilt_intrusion")  # Lưu ảnh và lấy đường dẫn
-
-        print(f"Ảnh xâm nhập đã được lưu: {img_filename}")
-
-        # Gửi email với ảnh đính kèm từ thư mục uploads
-        SendEmail(Sender_email, pass_sender, Reciever_Email)
-
-        # Bật còi báo động (buzzer)
-        GPIO.output(BUZZER, GPIO.HIGH)
-        open_buzzer(2)  # Kêu trong 2 giây nếu phát hiện xâm nhập nghiêng
-
-
-        # Đợi 10 giây trước khi kiểm tra lại để tránh spam
-        time.sleep(10)
-  # Tạm dừng 10 giây trước khi tiếp tục kiểm tra
+            time.sleep(0.1)  # Chi 100ms truoc khi kiem tra tiep
+    except Exception as e:
+        print(f"Loi radar: {e}")
 
 # ------------- send email khi phát hiện xâm nhập -------------
 def get_latest_image_path(upload_folder):
@@ -464,6 +488,64 @@ def SendEmail(sender, pass_sender, receiver):
         print("Email đã được gửi với ảnh đính kèm.")
     except Exception as e:
         print(f"Không thể gửi email: {e}")
+#------Kết nối cảm biến vân tay (UART: /dev/ttyS0)-------
+try:
+    finger = PyFingerprint('/dev/ttyS0', 57600, 0xFFFFFFFF, 0x00000000)
+    if not finger.verifyPassword():
+        raise ValueError("Không thể xác minh mật khẩu cảm biến vân tay!")
+    print("✅ Cảm biến vân tay kết nối thành công!")
+except Exception as e:
+    print(f"❌ Lỗi cảm biến vân tay: {e}")
+    exit(1)
+
+
+def load_fingerprint_data(user_name):
+    """Tải dữ liệu vân tay từ file"""
+    file_path = f"dataset/{user_name}/fingerprint_{user_name}.dat"
+    
+    try:
+        with open(file_path, "rb") as f:
+            fingerprint_data = pickle.load(f)
+        return fingerprint_data
+    except (FileNotFoundError, pickle.UnpicklingError):
+        print(f"❌ Không tìm thấy hoặc lỗi dữ liệu vân tay cho {user_name}")
+        return None
+
+def authenticate_fingerprint(user_name):
+    """Quét vân tay và xác thực"""
+    print("📌 Vui lòng đặt vân tay...")
+    clear_data_input()
+    lcd.write_string("Place Finger")
+
+    start_time = time.time()
+    while time.time() - start_time < 55:  # Chỉ cho phép quét trong 10 giây
+        if finger.readImage():
+            finger.convertImage(0x01)
+            scanned_data = finger.downloadCharacteristics()
+            stored_data = load_fingerprint_data(user_name)
+
+            if stored_data:
+                finger.convertImage(0x02)  # Chuy?n m?u vân tay quét vào b? nh? 0x02
+                match_score = finger.compareCharacteristics()
+                
+                if match_score >= 50:  # Ngu?ng so sánh (50-100 là t?t)
+                    print(f" Xác thưc vân tay thành công! Mơ cửa cho {user_name}")
+                    clear_data_input()
+                    lcd.write_string("Fingerprint OK!")
+                    log_access(user_name, "Face", f"{user_name} đã mở cửa bằng nhận diện khuôn mặt")
+                    return True
+                else:
+                    print(" Vân tay không hop lệ!")
+                    clear_data_input()
+                    lcd.write_string("Fingerprint Fail")
+                    open_buzzer(2)
+                    return False
+
+
+    print("⏳ Hết thời gian quét vân tay!")
+    clear_data_input()
+    lcd.write_string("Time out!")
+    return False  # Nếu quá 10s mà chưa quét, trả về False
 
 #-------------- hàm chính -------------------
 print("Cửa khóa")
@@ -474,7 +556,7 @@ picam2 = Picamera2()
 picam2.start()  # Bật camera ngay lập tức
 
 # Tải mô hình Haar Cascade để nhận diện khuôn mặt
-haarcascade_path = '/home/Tun/Desktop/FacePass2/haarcascade_frontalface_default.xml'
+haarcascade_path = '/home/Tun/Desktop/END/haarcascade_frontalface_default.xml'
 face_cascade = cv2.CascadeClassifier(haarcascade_path)
 
 if face_cascade.empty():
@@ -523,11 +605,24 @@ def delayed_email_if_unknown(sender, pass_sender, receiver):
     SendEmail(sender, pass_sender, receiver)
 
 #ghi lại thơi gian mở cửa 
-def log_event_to_text_file(event_description):
-    log_file_path = 'door_access_log.txt'  # File lưu log
-    with open(log_file_path, "a") as log_file:
-        log_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        log_file.write(f"{log_time} - {event_description}\n")
+def log_access(user_name, access_method, event_description):
+    conn = connect_db()
+    if conn is None:
+        print("⚠ Không thể kết nối MySQL, bỏ qua ghi nhật ký truy cập.")
+        return
+    
+    try:
+        cursor = conn.cursor()
+        sql = "INSERT INTO access_log (user_name, access_method, event_description, timestamp) VALUES (%s, %s, %s, NOW())"
+        values = (user_name, access_method, event_description)
+        cursor.execute(sql, values)
+        conn.commit()
+        print(f"✅ Ghi nhật ký vào `access_log`: {user_name} - {access_method}")
+    except mysql.connector.Error as err:
+        print(f"❌ Lỗi MySQL khi ghi nhật ký vào `access_log`: {err}")
+    finally:
+        cursor.close()
+        conn.close()
 
 # Hàm mở khóa cửa
 def mo_khoa_cua():
@@ -598,13 +693,39 @@ def recognize_faces():
                         unknown_timeout_flag = False  # Đặt lại cờ nếu nhận diện đúng người dùng
                         current_time = time.time()
                         if name not in last_recognition_time or (current_time - last_recognition_time[name]) > min_recognition_interval:
-                            print(f"Mở khóa cửa cho người dùng: {name}")
+                            print(f"✅ Nhận diện khuôn mặt thành công: {name}")
                             last_recognition_time[name] = current_time
-                            threading.Thread(target=mo_khoa_cua).start()
                             
-                            # Sử dụng luồng riêng để chụp và lưu ảnh
+                            # Chụp và lưu ảnh
                             img_filename = capture_and_save_image(frame_bgr, name)
-                    
+
+                            # 👉 Hiển thị trên LCD yêu cầu quét vân tay
+                            clear_data_input()
+                            lcd.write_string(f"Hello {name}!")
+                            lcd.cursor_pos = (1, 0)
+                            lcd.write_string("Scan Finger...")
+
+                            # Cho phép quét vân tay trong vòng 10s
+                            start_time = time.time()
+                            while time.time() - start_time < 10:
+                                if authenticate_fingerprint(name):  # Nếu vân tay đúng thì mở cửa
+                                    print(f"🔓 Mở khóa cửa cho {name}")
+                                    clear_data_input()
+                                    lcd.write_string("Door Opened!")
+                                    threading.Thread(target=mo_khoa_cua).start()
+                                    time.sleep(2)
+                                    clear_data_input()
+                                    lcd.write_string("Scan Face")
+                                    break
+                            else:
+                                # Nếu quá 10s mà không quét vân tay, yêu cầu quét lại từ đầu
+                                print("⏳ Quá thời gian quét vân tay, quét lại khuôn mặt!")
+                                clear_data_input()
+                                lcd.write_string("Time out!")
+                                time.sleep(2)
+                                clear_data_input()
+                                lcd.write_string("Scan Face")
+
                     else:
                         # Đợi trước khi kết luận là "Unknown"
                         if not unknown_timeout_flag:
@@ -637,15 +758,11 @@ def recognize_faces():
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break
 
-
-
 face_thread = threading.Thread(target=recognize_faces)
 password_thread = threading.Thread(target=check_pass)
 motion_thread = threading.Thread(target=detect_motion)
-tilt_thread = threading.Thread(target=Tilt_Handle)
 
 # Khởi động luồng xử lý cảm biến nghiêng
-tilt_thread.start()
 
 # Đảm bảo các luồng khác vẫn hoạt động song song
 face_thread.start()

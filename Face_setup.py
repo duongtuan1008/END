@@ -8,7 +8,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score
 
 # Đường dẫn đến thư mục chứa hình ảnh khuôn mặt
-dataset_dir = '/home/Tun/Desktop/FacePass2/dataset'
+dataset_dir = '/home/Tun/Desktop/END/dataset'
 
 # Khởi tạo từ điển để lưu trữ encoding và ID
 all_face_encodings = {}

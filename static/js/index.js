@@ -57,3 +57,37 @@ function togglePlayPause(videoId) {
         videoElement.pause();
     }
 }
+document.getElementById("submit-on").addEventListener("click", function() {
+    fetch('/open_door', {
+        method: 'POST'
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            alert("Cửa đã được mở!");
+        } else {
+            alert("Có lỗi xảy ra khi mở cửa.");
+        }
+    })
+    .catch(error => {
+        console.error("Error:", error);
+    });
+});
+document.getElementById("submit-off").addEventListener("click", function() {
+    fetch('/closeclose_door', {
+        method: 'POST'
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            alert("Cửa đã đóngđóng!");
+        } else {
+            alert("Có lỗi xảy ra khi đóngđóng cửa.");
+        }
+    })
+    .catch(error => {
+        console.error("Error:", error);
+    });
+});
+
+
