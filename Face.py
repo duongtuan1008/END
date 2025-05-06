@@ -20,6 +20,13 @@ from RPLCD.i2c import CharLCD
 import pickle
 from pyfingerprint.pyfingerprint import PyFingerprint
 import mysql.connector
+from flask import Flask, Response,render_template_string
+
+app = Flask(__name__)
+
+shared_frame = None
+frame_lock = threading.Lock()
+
 # Khởi tạo màn hình LCD
 lcd = CharLCD('PCF8574', 0x27)  # Thay '0x27' bằng địa chỉ I2C của LCD (kiểm tra bằng lệnh i2cdetect)
 
@@ -42,8 +49,8 @@ GPIO.setwarnings(False)
 GPIO.setmode(GPIO.BCM)
 RELAY_PIN = 17
 PIR_PIN=18
-LED_PIN =23
-BUZZER =25
+LED_PIN =25
+BUZZER =23
 GPIO.setup(LED_PIN,GPIO.OUT)
 GPIO.setup(BUZZER,GPIO.OUT)
 GPIO.setup(PIR_PIN,GPIO.IN)
@@ -228,8 +235,6 @@ def check_pass():
             time.sleep(2)  # Đợi 2 giây trước khi xóa màn hình
             reset_lcd_to_default()  # Đặt lại trạng thái màn hình về mặc định
   # Xóa màn hình sau khi hoàn thành kiểm tra
-  # Xóa màn hình sau khi hoàn thành kiểm tra
-  # Xóa màn hình sau khi kiểm tra
 
 def changePass():
     global password, new_pass1, new_pass2
@@ -552,8 +557,11 @@ print("Cửa khóa")
 GPIO.output(RELAY_PIN, GPIO.LOW)
 
 # Khởi tạo camera với Picamera2
+# Camera cho nhận diện khuôn mặt
 picam2 = Picamera2()
-picam2.start()  # Bật camera ngay lập tức
+face_config = picam2.create_preview_configuration(main={"size": (640, 480)})
+picam2.configure(face_config)
+picam2.start()
 
 # Tải mô hình Haar Cascade để nhận diện khuôn mặt
 haarcascade_path = '/home/Tun/Desktop/END/haarcascade_frontalface_default.xml'
@@ -656,7 +664,8 @@ def open_buzzer(thời_gian=1):
     GPIO.output(BUZZER, GPIO.LOW)    # Tắt buzzer
 def recognize_faces():
     global doorUnlock, is_checking_password, prevTime, last_recognized_face, last_recognition_time
-    
+    global shared_frame
+
     # Khởi tạo cờ unknown_timeout_flag
     unknown_timeout_flag = False
     
@@ -664,7 +673,9 @@ def recognize_faces():
     while True:
         # Chụp frame từ Picamera2
         frame = picam2.capture_array()
-        
+           # 🔒 Ghi frame để Flask stream
+        with frame_lock:
+            shared_frame = frame.copy()
         # Chuyển đổi frame sang định dạng BGR
         frame_bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
         
@@ -751,13 +762,53 @@ def recognize_faces():
                     # Hiển thị ID trên khung hình
                     cv2.putText(frame_bgr, name, (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2)
         
-        # Hiển thị frame với các khuôn mặt được đánh dấu
         cv2.imshow("Camera - Face Detection and Recognition", frame_bgr)
+        cv2.waitKey(1)
+
         
         # Nhấn 'q' để thoát
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break
+def gen_frames():
+    global shared_frame
+    while True:
+        with frame_lock:
+            if shared_frame is None:
+                continue
+            frame = shared_frame.copy()
+        frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+        ret, buffer = cv2.imencode('.jpg', frame)
+        if not ret:
+            continue
+        frame_bytes = buffer.tobytes()
+        yield (b'--frame\r\n'
+               b'Content-Type: image/jpeg\r\n\r\n' + frame_bytes + b'\r\n')
 
+@app.route('/')
+def index():
+    return render_template_string("""
+    <!doctype html>
+    <html>
+        <head>
+            <title>Live Stream</title>
+        </head>
+        <body>
+            <h1>Xem camera trực tiếp</h1>
+            <img src="/video" width="800" height="600">
+        </body>
+    </html>
+    """)
+
+@app.route('/video')
+def video():
+    return Response(gen_frames(), mimetype='multipart/x-mixed-replace; boundary=frame')
+
+def run_flask():
+    print("✅ Flask server đang chạy trên http://<IP của bạn>:5000")
+    app.run(host='0.0.0.0', port=5000, debug=False)
+flask_thread = threading.Thread(target=run_flask)
+flask_thread.daemon = True
+flask_thread.start()
 face_thread = threading.Thread(target=recognize_faces)
 password_thread = threading.Thread(target=check_pass)
 motion_thread = threading.Thread(target=detect_motion)
@@ -768,9 +819,10 @@ motion_thread = threading.Thread(target=detect_motion)
 face_thread.start()
 password_thread.start()
 motion_thread.start()
-
 cv2.imshow("Camera - Face Detection and Recognition", frame_bgr)
 cv2.waitKey(1)
-picam2.stop()  # Dừng camera
+picam2.stop()
+
+  # Dừng camera
 GPIO.output(RELAY_PIN, GPIO.LOW)  # Đảm bảo cửa khóa khi dừng camera
 cv2.destroyAllWindows()
